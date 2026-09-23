@@ -1,0 +1,66 @@
+# .pre-commit-config.yaml
+#
+# Automated code-quality checks for the Mini Projects repository.
+#
+# Enable once per clone:
+#
+#     pip install -e ".[dev]"
+#     pre-commit install
+#
+# Run all hooks manually:
+#
+#     pre-commit run --all-files
+#
+# The hooks configured here run automatically before git commits.
+
+repos:
+  # ── Ruff: Python linter ────────────────────────────────────────────────
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.4.4
+    hooks:
+      - id: ruff
+        args: [--fix]
+
+  # ── Generic repository hygiene ────────────────────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      # Whitespace and line endings
+      - id: trailing-whitespace
+
+      - id: end-of-file-fixer
+
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+      # Configuration-file validation
+      - id: check-yaml
+
+      - id: check-toml
+
+      - id: check-json
+
+      # Git correctness
+      - id: check-merge-conflict
+
+      - id: check-added-large-files
+        args: [--maxkb=500]
+
+      # Python safety
+      - id: check-ast
+
+      - id: debug-statements
+
+      - id: check-executables-have-shebangs
+
+      # Security
+      - id: detect-private-key
+
+  # ── Black: Python formatter ───────────────────────────────────────────
+  - repo: local
+    hooks:
+      - id: black
+        name: black
+        entry: black
+        language: system
+        types: [python]
