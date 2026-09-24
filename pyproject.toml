@@ -40,3 +40,4 @@ target-version = "py310"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--cov=src/prodml --cov-fail-under=70"
