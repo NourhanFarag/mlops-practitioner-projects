@@ -14,6 +14,8 @@ logger = logging.getLogger(__name__)
 
 FeatureDict = dict[str, str | float]
 
+ModelMetadata = dict[str, str]
+
 
 def timed(func: Callable[..., Any]) -> Callable[..., Any]:
     @wraps(func)
@@ -36,9 +38,11 @@ class DurationPredictor:  # To pass both objects to every function
         self,
         vectorizer: DictVectorizer,
         model: LinearRegression,
+        metadata: ModelMetadata | None = None,
     ) -> None:
         self.vectorizer = vectorizer
         self.model = model
+        self.metadata = metadata or {}
 
     @classmethod
     def load(cls) -> "DurationPredictor":
@@ -53,6 +57,7 @@ class DurationPredictor:  # To pass both objects to every function
         return cls(
             vectorizer=artifact["vectorizer"],
             model=artifact["model"],
+            metadata=artifact.get("metadata", {}),
         )
 
     # clean interface for API single prediction
@@ -62,7 +67,9 @@ class DurationPredictor:  # To pass both objects to every function
 
         trip_distance = features.get("trip_distance")
         if isinstance(trip_distance, (int, float)) and trip_distance > 100:
-            logger.warning("trip distance outside training range: %.2f", trip_distance)
+            logger.warning(
+                "trip distance exceeds warning threshold: %.2f", trip_distance
+            )
 
         X = self.vectorizer.transform([features])
         prediction = self.model.predict(X)[0]

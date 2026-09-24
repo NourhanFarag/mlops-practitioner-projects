@@ -1,52 +1,401 @@
 # Module 1 Report
 
-## Baseline Metrics
+## Baseline Results
 
-- Validation MAE: 4.22 minutes
-- Validation RMSE: 6.51 minutes
+The initial ride-duration model was developed in:
 
-## Baseline Model
+```text
+notebooks/00-baseline.ipynb
+```
 
-The initial baseline is implemented in:
+The notebook is intentionally kept as the exploratory "before" version of the
+workflow before the code was refactored into a production-style Python package.
 
-`notebooks/00-baseline.ipynb`
+The baseline validation metrics were:
 
-The notebook represents the "before" version of the project before the
-workflow is refactored into reusable Python modules.
+```text
+Validation MAE:  4.22 minutes
+Validation RMSE: 6.51 minutes
+```
 
-The baseline model uses:
+## Dataset
 
-- `PU_DO` as a categorical feature
-- `trip_distance` as a numerical feature
-- `duration` in minutes as the target
-- `DictVectorizer` for categorical encoding
-- `LinearRegression` as the regression model
+The model uses one month of NYC TLC green taxi trip data:
 
-## Baseline Data Preparation
+```text
+green_tripdata_2026-01.parquet
+```
 
-The dataset was cleaned by keeping:
+The raw dataset contained:
 
-- trip durations between 1 and 60 minutes
-- trip distances greater than 0 and no more than 50 miles
+```text
+40,272 rows
+21 columns
+```
 
-After cleaning, 37,533 trip records remained.
+The prediction target is trip duration in minutes, calculated from:
 
-## Baseline Observations
+```text
+lpep_dropoff_datetime - lpep_pickup_datetime
+```
 
-The linear regression baseline outperformed a median dummy predictor:
+## Data Cleaning
 
-- Dummy MAE: 7.30 minutes
-- Dummy RMSE: 10.56 minutes
-- Linear Regression MAE: 4.22 minutes
-- Linear Regression RMSE: 6.51 minutes
+Trip duration was restricted to:
 
-Training error was lower than validation error:
+```text
+1 <= duration <= 60 minutes
+```
 
-- Training MAE: 3.03 minutes
-- Validation MAE: 4.22 minutes
-- Training RMSE: 4.65 minutes
-- Validation RMSE: 6.51 minutes
+After duration cleaning:
 
-The model also produced a small number of predictions above the
-60-minute target-cleaning boundary. These limitations are kept as part
-of the baseline and can be revisited in later iterations.
+```text
+38,088 rows remained
+```
+
+Trip distance was then restricted to:
+
+```text
+0 < trip_distance <= 50 miles
+```
+
+This removed zero-distance trips and a small number of extreme corrupted
+distance values.
+
+After all cleaning:
+
+```text
+37,533 rows remained
+```
+
+The final cleaned dataset retained approximately:
+
+```text
+93.2% of the original rows
+```
+
+## Features
+
+The model uses two features:
+
+```text
+PU_DO
+trip_distance
+```
+
+`PU_DO` is an engineered categorical feature created by combining pickup and
+dropoff location IDs:
+
+```text
+PULocationID + "_" + DOLocationID
+```
+
+Example:
+
+```text
+74_75
+```
+
+The categorical and numerical features are transformed using:
+
+```text
+DictVectorizer
+```
+
+## Model
+
+The baseline model is:
+
+```text
+LinearRegression
+```
+
+The cleaned data was split into:
+
+```text
+80% training
+20% validation
+```
+
+using:
+
+```text
+random_state = 42
+```
+
+The resulting split contained:
+
+```text
+Training rows:   30,026
+Validation rows: 7,507
+```
+
+## Baseline Comparison
+
+A simple median dummy baseline was evaluated before the linear model.
+
+| Model | Validation MAE | Validation RMSE |
+|---|---:|---:|
+| Median dummy baseline | 7.30 min | 10.56 min |
+| Linear regression | 4.22 min | 6.51 min |
+
+The linear regression model substantially improved over the median baseline.
+
+Training metrics for the linear regression model were:
+
+```text
+Training MAE:  3.03 minutes
+Training RMSE: 4.65 minutes
+```
+
+The lower training error compared with validation error indicates that the
+model performs better on examples seen during training than on unseen
+validation examples.
+
+The baseline intentionally remains simple because its purpose is to provide a
+clear reference point before production engineering and optimization.
+
+The model produced a small number of predictions above the 60-minute
+target-cleaning boundary. These limitations are kept as part of the baseline
+and can be revisited in later iterations.
+
+---
+
+## Python Package Refactor
+
+The exploratory notebook workflow was refactored into the `prodml` Python
+package.
+
+```text
+src/prodml/
+├── config.py
+├── data.py
+├── features.py
+├── train.py
+├── predict.py
+└── api/
+```
+
+Responsibilities were separated as follows:
+
+| Module | Responsibility |
+|---|---|
+| `config.py` | Paths, hyperparameters, thresholds, and application configuration |
+| `data.py` | Parquet loading and train/validation splitting |
+| `features.py` | Cleaning and feature engineering |
+| `train.py` | Model fitting, evaluation, and persistence |
+| `predict.py` | Model loading and single/batch prediction |
+| `api/` | HTTP serving layer |
+
+Configuration is managed using `pydantic-settings`, allowing defaults to be
+overridden through environment variables using the `PRODML_` prefix.
+
+The package provides the following prediction interface:
+
+```text
+DurationPredictor.load()
+DurationPredictor.predict_one()
+DurationPredictor.predict_batch()
+```
+
+The refactored training workflow produces:
+
+```text
+models/model.pkl
+```
+
+and reproduces the notebook metrics:
+
+```text
+Validation MAE:  4.22 minutes
+Validation RMSE: 6.51 minutes
+```
+
+Therefore, the refactor did not materially change model behavior.
+
+---
+
+## Structured Logging
+
+Application logging was converted from `print()` statements to structured JSON
+logs.
+
+Each application log contains:
+
+```text
+timestamp
+level
+logger
+message
+correlation_id
+```
+
+Example:
+
+```json
+{
+  "timestamp": "2026-09-23T23:07:12.914225+00:00",
+  "level": "INFO",
+  "logger": "prodml.predict",
+  "message": "predict_one served in 0.149 ms",
+  "correlation_id": "f3d9651c-2789-41f6-9880-1867203e2d08"
+}
+```
+
+The following logging levels are used:
+
+| Level | Usage |
+|---|---|
+| `DEBUG` | Feature vectors and development-level diagnostic information |
+| `INFO` | Successful predictions, request lifecycle events, and latency |
+| `WARNING` | Inputs outside the expected range, such as `trip_distance > 100` |
+| `ERROR` | Model-loading failures and rejected request validation |
+
+A FastAPI middleware creates a new UUID correlation ID for every request using
+`uuid4()`.
+
+The correlation ID is stored using `contextvars`, allowing logs generated by
+different parts of the same request to carry the same identifier.
+
+The same identifier is also returned to the client through:
+
+```text
+X-Request-ID
+```
+
+This allows a single HTTP request to be traced across request, prediction, and
+response logs.
+
+Structured logs were piped through `jq` and successfully parsed as valid JSON.
+
+All `print()` statements were removed from production code under:
+
+```text
+src/
+```
+
+---
+
+## Serialization
+
+The trained scikit-learn `LinearRegression` estimator was exported to ONNX
+using:
+
+```text
+skl2onnx
+```
+
+The exported model is stored at:
+
+```text
+models/model.onnx
+```
+
+The fitted `DictVectorizer` remains part of the Python-side preprocessing.
+
+Both the Pickle/scikit-learn model and the ONNX model therefore receive
+features produced by the same fitted vectorizer.
+
+The ONNX input was exported with a dynamic batch dimension:
+
+```text
+[None, number_of_features]
+```
+
+This allows the same exported model to process different batch sizes rather
+than being restricted to a fixed number of rows.
+
+### Pickle vs ONNX Parity
+
+Prediction parity was tested using:
+
+```text
+500 validation rows
+```
+
+The same validation examples were transformed using the fitted
+`DictVectorizer` and passed through both:
+
+```text
+scikit-learn LinearRegression
+ONNX Runtime
+```
+
+The predictions were compared using:
+
+```python
+np.allclose(pred_pkl, pred_onnx, atol=1e-4)
+```
+
+The parity test passed.
+
+This confirms that the ONNX-exported estimator reproduces the original
+scikit-learn model predictions within the required numerical tolerance.
+
+### Inference Benchmark
+
+Both runtimes were benchmarked using the same:
+
+```text
+500 validation rows
+```
+
+Feature transformation was performed before timing, so the benchmark compares
+model inference runtime rather than preprocessing.
+
+The benchmark used:
+
+```text
+5 warm-up runs
+100 measured runs
+```
+
+The measured latency was:
+
+| Runtime | Mean latency | P95 latency |
+|---|---:|---:|
+| Pickle / scikit-learn | 0.089 ms | 0.107 ms |
+| ONNX Runtime | 0.770 ms | 1.632 ms |
+
+For this small linear regression model, the scikit-learn runtime was faster in
+the local benchmark.
+
+The underlying model computation is very small, so ONNX Runtime's additional
+runtime overhead is significant relative to the amount of computation being
+performed.
+
+This result does **not** imply that Pickle/scikit-learn is always faster than
+ONNX.
+
+The measurements are specific to:
+
+```text
+this model
+this 500-row batch
+this machine
+this runtime configuration
+```
+
+More complex models or different deployment environments may produce different
+results.
+
+### Serialization Format Comparison
+
+| Format | Human-readable | Cross-language | Schema-enforced | Safe to load from an untrusted source |
+|---|---|---|---|---|
+| JSON | Yes | Yes | No, not by itself | Generally safe as data when parsed with a normal JSON parser |
+| Protobuf | No | Yes | Yes | Generally safe as data, subject to normal parser/resource limits |
+| Pickle | No | No — primarily Python-specific | No | **No** |
+| ONNX | No | Yes | Yes, according to the ONNX model specification | Not guaranteed; untrusted model files should still be treated cautiously |
+
+### Service Serialization Choice
+
+The current service serves predictions using the Pickle/scikit-learn artifact
+because it integrates directly with the existing Python prediction pipeline and
+was faster for this small model in the local benchmark.
+
+Only artifacts created and trusted by this project are loaded.
+
+> **Security warning:** Pickle can execute arbitrary code during
+> deserialization. Never load a `.pkl` file that you did not produce or obtain
+> from a fully trusted source.

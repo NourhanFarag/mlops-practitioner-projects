@@ -10,6 +10,9 @@ dependencies = [
     "uvicorn",
     "pydantic",
     "pydantic-settings",
+    "numpy",
+    "skl2onnx",
+    "onnxruntime",
 ]
 
 [project.optional-dependencies]

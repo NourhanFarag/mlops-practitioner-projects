@@ -1,5 +1,7 @@
 import logging
 import pickle
+from datetime import datetime, timezone
+from importlib.metadata import version
 
 import pandas as pd
 from sklearn.feature_extraction import DictVectorizer
@@ -60,6 +62,11 @@ def save_model(vectorizer: DictVectorizer, model: LinearRegression) -> None:
     artifact = {
         "vectorizer": vectorizer,
         "model": model,
+        "metadata": {
+            "model_version": version("prodml"),
+            "training_date": datetime.now(timezone.utc).isoformat(),
+            "framework": "scikit-learn",
+        },
     }
 
     with open(settings.model_path, "wb") as file:
