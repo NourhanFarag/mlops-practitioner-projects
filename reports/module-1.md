@@ -399,3 +399,35 @@ Only artifacts created and trusted by this project are loaded.
 > **Security warning:** Pickle can execute arbitrary code during
 > deserialization. Never load a `.pkl` file that you did not produce or obtain
 > from a fully trusted source.
+
+## Litestar API Experiment
+
+As an optional framework comparison, the single `/predict` endpoint was also
+implemented with Litestar on the `litestar-predict` branch.
+
+The Litestar implementation reuses the same trained model and Pydantic
+`PredictionRequest` and `PredictionResponse` schemas used by the primary
+FastAPI service.
+
+A real request to the Litestar endpoint returned a successful prediction with
+the model version, correlation ID, latency, and matching `X-Request-ID`
+response header.
+
+### FastAPI vs Litestar
+
+Both frameworks support ASGI deployment with Uvicorn, Pydantic models, and
+automatic OpenAPI documentation.
+
+For this project, FastAPI felt more direct because request validation,
+exception handlers, middleware, response models, and the existing structured
+logging setup fit naturally into the service implementation.
+
+Litestar uses a slightly different handler style, including the `data`
+parameter for request-body data and explicit route-handler registration on
+the application. It also introduced different default logging behaviour,
+which would require additional configuration to preserve the project's JSON
+logging format.
+
+FastAPI remains the primary serving framework for this project, while the
+Litestar implementation is retained on a side branch as a framework
+comparison.
