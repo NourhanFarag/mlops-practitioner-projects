@@ -666,3 +666,22 @@ training dataset, or retraining the model.
 
 This satisfies the containerization acceptance requirement that another user
 can start the published image and obtain predictions using Docker alone.
+
+---
+
+## MLOps Maturity Self-Assessment
+
+Using the five-level maturity model from Lesson 1, this repository currently
+fits **Level 1 — Manual Process**.
+
+The project has moved beyond notebook-only experimentation into reusable Python
+modules, automated tests, model serialization, an API, structured logging, and
+a reproducible Docker image. However, model training, experiment execution,
+version promotion, and deployment are still triggered manually, and there is
+no experiment-tracking system or automated CI pipeline coordinating the ML
+workflow.
+
+To reach **Level 2 — ML Pipeline**, the project needs automated training,
+experiment tracking, and basic CI so that model-building and validation steps
+run reproducibly without relying on manual commands. These capabilities are the
+next focus of Module 2.
