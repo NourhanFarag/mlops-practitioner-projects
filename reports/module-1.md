@@ -431,3 +431,238 @@ logging format.
 FastAPI remains the primary serving framework for this project, while the
 Litestar implementation is retained on a side branch as a framework
 comparison.
+
+---
+
+## Containerization
+
+The prediction service was containerized using Docker with a multi-stage build
+based on `python:3.11-slim`.
+
+The runtime container:
+
+- installs the application and dependencies in a separate builder stage,
+- copies the installed Python environment into a clean runtime stage,
+- includes the trained model artifact,
+- exposes port `8000`,
+- defines a Docker health check against `/health`,
+- and runs the service as a non-root user.
+
+The container process runs as:
+
+```text
+user: appuser
+uid: 1000
+```
+
+This was verified with:
+
+```text
+docker exec <container> whoami
+docker exec <container> id
+```
+
+The commands returned:
+
+```text
+appuser
+uid=1000(appuser) gid=1000(appuser) groups=1000(appuser)
+```
+
+### Docker Build Context
+
+The Docker build context was measured before and after adding `.dockerignore`.
+
+| Configuration | Build context | Final image size |
+|---|---:|---:|
+| Without `.dockerignore` | 353.20 kB | 1,047,241,679 bytes |
+| With `.dockerignore` | 2.09 kB | 1,047,241,679 bytes |
+
+The `.dockerignore` reduced the build context by approximately 99.4%.
+
+The final image size did not change in this comparison because the Dockerfile
+already copies only specific paths (`pyproject.toml`, `src/`, and `models/`)
+rather than copying the whole repository.
+
+The `.dockerignore` therefore mainly improves build-context efficiency and
+reduces the chance of unnecessary local files being sent to the Docker builder.
+
+### Single-stage vs Multi-stage
+
+The final application was built using both single-stage and multi-stage Docker
+builds.
+
+| Build strategy | Final image size |
+|---|---:|
+| Single-stage | 1,060,475,527 bytes |
+| Multi-stage | 1,041,032,523 bytes |
+
+The multi-stage build reduced the final image size by 19,443,004 bytes,
+approximately 19.44 MB or 1.83%.
+
+The reduction is relatively small because the builder stage does not install
+large compiler toolchains and most of the image size comes from runtime ML
+dependencies such as NumPy, scikit-learn, and ONNX Runtime.
+
+The multi-stage approach still provides a cleaner runtime image by separating
+build-time files from the final serving environment.
+
+### Dependency Reproducibility
+
+During the first container test, loading the Pickle artifact produced an
+`InconsistentVersionWarning`.
+
+The model had been serialized using scikit-learn 1.7.2 while the initial Docker
+build installed scikit-learn 1.9.1.
+
+Because Pickle-based scikit-learn artifacts are sensitive to library-version
+compatibility, the project dependency was pinned to:
+
+```text
+scikit-learn==1.7.2
+```
+
+After rebuilding the image, the container reported:
+
+```text
+scikit-learn 1.7.2
+```
+
+and the serialization compatibility warning disappeared.
+
+### Docker Compose
+
+A `docker/docker-compose.yml` file was added to provide a reproducible local
+container deployment.
+
+The Compose configuration includes:
+
+- the API service,
+- the `PRODML_MODEL_PATH` environment variable,
+- a read-only `models/` volume mount,
+- port mapping from host port `8000` to container port `8000`,
+- and `restart: unless-stopped`.
+
+The service was started using:
+
+```text
+docker compose -f docker/docker-compose.yml up --build -d
+```
+
+The Compose deployment successfully reached Docker's:
+
+```text
+healthy
+```
+
+state, and the `/health` endpoint returned:
+
+```text
+HTTP/1.1 200 OK
+```
+
+### Standalone Runtime Verification
+
+The final image was also tested independently of Docker Compose.
+
+It was started using:
+
+```text
+docker run --rm \
+  --name prodml-api-test \
+  -p 8000:8000 \
+  nourhan17/prodml-api:0.1.0
+```
+
+This test is important because it verifies that the published image contains
+everything required to serve predictions without relying on a local source
+checkout or a model volume mount.
+
+The container successfully:
+
+- loaded the model at application startup,
+- returned HTTP 200 from `/health`,
+- passed the Docker health check,
+- served a real `/predict` request,
+- returned the model version and request correlation ID,
+- and ran as the non-root `appuser`.
+
+For the request:
+
+```json
+{
+  "PU_DO": "74_75",
+  "trip_distance": 3.5
+}
+```
+
+the container returned:
+
+```text
+prediction: 17.43947267130485
+model_version: 0.1.0
+```
+
+The response also included a correlation ID and prediction latency.
+
+### Non-root Execution
+
+The runtime container was configured to use a dedicated Linux user rather than
+running the API as `root`.
+
+The runtime user was verified using:
+
+```text
+docker exec prodml-api-check whoami
+```
+
+which returned:
+
+```text
+appuser
+```
+
+The user ID was also verified using:
+
+```text
+docker exec prodml-api-check id
+```
+
+which returned:
+
+```text
+uid=1000(appuser) gid=1000(appuser) groups=1000(appuser)
+```
+
+Running the serving process as a non-root user reduces unnecessary container
+privileges.
+
+### Published Image
+
+The final Docker image was tagged using both a semantic version and a rolling
+`latest` tag:
+
+```text
+nourhan17/prodml-api:0.1.0
+nourhan17/prodml-api:latest
+```
+
+Both tags were pushed successfully to Docker Hub.
+
+They currently point to the same published image digest:
+
+```text
+sha256:136cc22e0ef5d707fb739969102d7713e25b7b0c3a978ea7ff22aecc4b554c7e
+```
+
+The image can therefore be started on another machine using:
+
+```text
+docker run -p 8000:8000 nourhan17/prodml-api:0.1.0
+```
+
+without cloning the repository, installing Python dependencies, downloading the
+training dataset, or retraining the model.
+
+This satisfies the containerization acceptance requirement that another user
+can start the published image and obtain predictions using Docker alone.
