@@ -3,13 +3,16 @@ name = "prodml"
 version = "0.1.0"
 requires-python = ">=3.10"
 dependencies = [
-    "scikit-learn",
+    "scikit-learn==1.7.2",
     "pandas",
     "pyarrow",
     "fastapi",
     "uvicorn",
     "pydantic",
     "pydantic-settings",
+    "numpy",
+    "skl2onnx",
+    "onnxruntime",
 ]
 
 [project.optional-dependencies]
@@ -37,3 +40,4 @@ target-version = "py310"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--cov=src/prodml --cov-fail-under=70"

@@ -1,52 +1,687 @@
 # Module 1 Report
 
-## Baseline Metrics
+## Baseline Results
 
-- Validation MAE: 4.22 minutes
-- Validation RMSE: 6.51 minutes
+The initial ride-duration model was developed in:
 
-## Baseline Model
+```text
+notebooks/00-baseline.ipynb
+```
 
-The initial baseline is implemented in:
+The notebook is intentionally kept as the exploratory "before" version of the
+workflow before the code was refactored into a production-style Python package.
 
-`notebooks/00-baseline.ipynb`
+The baseline validation metrics were:
 
-The notebook represents the "before" version of the project before the
-workflow is refactored into reusable Python modules.
+```text
+Validation MAE:  4.22 minutes
+Validation RMSE: 6.51 minutes
+```
 
-The baseline model uses:
+## Dataset
 
-- `PU_DO` as a categorical feature
-- `trip_distance` as a numerical feature
-- `duration` in minutes as the target
-- `DictVectorizer` for categorical encoding
-- `LinearRegression` as the regression model
+The model uses one month of NYC TLC green taxi trip data:
 
-## Baseline Data Preparation
+```text
+green_tripdata_2026-01.parquet
+```
 
-The dataset was cleaned by keeping:
+The raw dataset contained:
 
-- trip durations between 1 and 60 minutes
-- trip distances greater than 0 and no more than 50 miles
+```text
+40,272 rows
+21 columns
+```
 
-After cleaning, 37,533 trip records remained.
+The prediction target is trip duration in minutes, calculated from:
 
-## Baseline Observations
+```text
+lpep_dropoff_datetime - lpep_pickup_datetime
+```
 
-The linear regression baseline outperformed a median dummy predictor:
+## Data Cleaning
 
-- Dummy MAE: 7.30 minutes
-- Dummy RMSE: 10.56 minutes
-- Linear Regression MAE: 4.22 minutes
-- Linear Regression RMSE: 6.51 minutes
+Trip duration was restricted to:
 
-Training error was lower than validation error:
+```text
+1 <= duration <= 60 minutes
+```
 
-- Training MAE: 3.03 minutes
-- Validation MAE: 4.22 minutes
-- Training RMSE: 4.65 minutes
-- Validation RMSE: 6.51 minutes
+After duration cleaning:
 
-The model also produced a small number of predictions above the
-60-minute target-cleaning boundary. These limitations are kept as part
-of the baseline and can be revisited in later iterations.
+```text
+38,088 rows remained
+```
+
+Trip distance was then restricted to:
+
+```text
+0 < trip_distance <= 50 miles
+```
+
+This removed zero-distance trips and a small number of extreme corrupted
+distance values.
+
+After all cleaning:
+
+```text
+37,533 rows remained
+```
+
+The final cleaned dataset retained approximately:
+
+```text
+93.2% of the original rows
+```
+
+## Features
+
+The model uses two features:
+
+```text
+PU_DO
+trip_distance
+```
+
+`PU_DO` is an engineered categorical feature created by combining pickup and
+dropoff location IDs:
+
+```text
+PULocationID + "_" + DOLocationID
+```
+
+Example:
+
+```text
+74_75
+```
+
+The categorical and numerical features are transformed using:
+
+```text
+DictVectorizer
+```
+
+## Model
+
+The baseline model is:
+
+```text
+LinearRegression
+```
+
+The cleaned data was split into:
+
+```text
+80% training
+20% validation
+```
+
+using:
+
+```text
+random_state = 42
+```
+
+The resulting split contained:
+
+```text
+Training rows:   30,026
+Validation rows: 7,507
+```
+
+## Baseline Comparison
+
+A simple median dummy baseline was evaluated before the linear model.
+
+| Model | Validation MAE | Validation RMSE |
+|---|---:|---:|
+| Median dummy baseline | 7.30 min | 10.56 min |
+| Linear regression | 4.22 min | 6.51 min |
+
+The linear regression model substantially improved over the median baseline.
+
+Training metrics for the linear regression model were:
+
+```text
+Training MAE:  3.03 minutes
+Training RMSE: 4.65 minutes
+```
+
+The lower training error compared with validation error indicates that the
+model performs better on examples seen during training than on unseen
+validation examples.
+
+The baseline intentionally remains simple because its purpose is to provide a
+clear reference point before production engineering and optimization.
+
+The model produced a small number of predictions above the 60-minute
+target-cleaning boundary. These limitations are kept as part of the baseline
+and can be revisited in later iterations.
+
+---
+
+## Python Package Refactor
+
+The exploratory notebook workflow was refactored into the `prodml` Python
+package.
+
+```text
+src/prodml/
+├── config.py
+├── data.py
+├── features.py
+├── train.py
+├── predict.py
+└── api/
+```
+
+Responsibilities were separated as follows:
+
+| Module | Responsibility |
+|---|---|
+| `config.py` | Paths, hyperparameters, thresholds, and application configuration |
+| `data.py` | Parquet loading and train/validation splitting |
+| `features.py` | Cleaning and feature engineering |
+| `train.py` | Model fitting, evaluation, and persistence |
+| `predict.py` | Model loading and single/batch prediction |
+| `api/` | HTTP serving layer |
+
+Configuration is managed using `pydantic-settings`, allowing defaults to be
+overridden through environment variables using the `PRODML_` prefix.
+
+The package provides the following prediction interface:
+
+```text
+DurationPredictor.load()
+DurationPredictor.predict_one()
+DurationPredictor.predict_batch()
+```
+
+The refactored training workflow produces:
+
+```text
+models/model.pkl
+```
+
+and reproduces the notebook metrics:
+
+```text
+Validation MAE:  4.22 minutes
+Validation RMSE: 6.51 minutes
+```
+
+Therefore, the refactor did not materially change model behavior.
+
+---
+
+## Structured Logging
+
+Application logging was converted from `print()` statements to structured JSON
+logs.
+
+Each application log contains:
+
+```text
+timestamp
+level
+logger
+message
+correlation_id
+```
+
+Example:
+
+```json
+{
+  "timestamp": "2026-09-23T23:07:12.914225+00:00",
+  "level": "INFO",
+  "logger": "prodml.predict",
+  "message": "predict_one served in 0.149 ms",
+  "correlation_id": "f3d9651c-2789-41f6-9880-1867203e2d08"
+}
+```
+
+The following logging levels are used:
+
+| Level | Usage |
+|---|---|
+| `DEBUG` | Feature vectors and development-level diagnostic information |
+| `INFO` | Successful predictions, request lifecycle events, and latency |
+| `WARNING` | Inputs outside the expected range, such as `trip_distance > 100` |
+| `ERROR` | Model-loading failures and rejected request validation |
+
+A FastAPI middleware creates a new UUID correlation ID for every request using
+`uuid4()`.
+
+The correlation ID is stored using `contextvars`, allowing logs generated by
+different parts of the same request to carry the same identifier.
+
+The same identifier is also returned to the client through:
+
+```text
+X-Request-ID
+```
+
+This allows a single HTTP request to be traced across request, prediction, and
+response logs.
+
+Structured logs were piped through `jq` and successfully parsed as valid JSON.
+
+All `print()` statements were removed from production code under:
+
+```text
+src/
+```
+
+---
+
+## Serialization
+
+The trained scikit-learn `LinearRegression` estimator was exported to ONNX
+using:
+
+```text
+skl2onnx
+```
+
+The exported model is stored at:
+
+```text
+models/model.onnx
+```
+
+The fitted `DictVectorizer` remains part of the Python-side preprocessing.
+
+Both the Pickle/scikit-learn model and the ONNX model therefore receive
+features produced by the same fitted vectorizer.
+
+The ONNX input was exported with a dynamic batch dimension:
+
+```text
+[None, number_of_features]
+```
+
+This allows the same exported model to process different batch sizes rather
+than being restricted to a fixed number of rows.
+
+### Pickle vs ONNX Parity
+
+Prediction parity was tested using:
+
+```text
+500 validation rows
+```
+
+The same validation examples were transformed using the fitted
+`DictVectorizer` and passed through both:
+
+```text
+scikit-learn LinearRegression
+ONNX Runtime
+```
+
+The predictions were compared using:
+
+```python
+np.allclose(pred_pkl, pred_onnx, atol=1e-4)
+```
+
+The parity test passed.
+
+This confirms that the ONNX-exported estimator reproduces the original
+scikit-learn model predictions within the required numerical tolerance.
+
+### Inference Benchmark
+
+Both runtimes were benchmarked using the same:
+
+```text
+500 validation rows
+```
+
+Feature transformation was performed before timing, so the benchmark compares
+model inference runtime rather than preprocessing.
+
+The benchmark used:
+
+```text
+5 warm-up runs
+100 measured runs
+```
+
+The measured latency was:
+
+| Runtime | Mean latency | P95 latency |
+|---|---:|---:|
+| Pickle / scikit-learn | 0.089 ms | 0.107 ms |
+| ONNX Runtime | 0.770 ms | 1.632 ms |
+
+For this small linear regression model, the scikit-learn runtime was faster in
+the local benchmark.
+
+The underlying model computation is very small, so ONNX Runtime's additional
+runtime overhead is significant relative to the amount of computation being
+performed.
+
+This result does **not** imply that Pickle/scikit-learn is always faster than
+ONNX.
+
+The measurements are specific to:
+
+```text
+this model
+this 500-row batch
+this machine
+this runtime configuration
+```
+
+More complex models or different deployment environments may produce different
+results.
+
+### Serialization Format Comparison
+
+| Format | Human-readable | Cross-language | Schema-enforced | Safe to load from an untrusted source |
+|---|---|---|---|---|
+| JSON | Yes | Yes | No, not by itself | Generally safe as data when parsed with a normal JSON parser |
+| Protobuf | No | Yes | Yes | Generally safe as data, subject to normal parser/resource limits |
+| Pickle | No | No — primarily Python-specific | No | **No** |
+| ONNX | No | Yes | Yes, according to the ONNX model specification | Not guaranteed; untrusted model files should still be treated cautiously |
+
+### Service Serialization Choice
+
+The current service serves predictions using the Pickle/scikit-learn artifact
+because it integrates directly with the existing Python prediction pipeline and
+was faster for this small model in the local benchmark.
+
+Only artifacts created and trusted by this project are loaded.
+
+> **Security warning:** Pickle can execute arbitrary code during
+> deserialization. Never load a `.pkl` file that you did not produce or obtain
+> from a fully trusted source.
+
+## Litestar API Experiment
+
+As an optional framework comparison, the single `/predict` endpoint was also
+implemented with Litestar on the `litestar-predict` branch.
+
+The Litestar implementation reuses the same trained model and Pydantic
+`PredictionRequest` and `PredictionResponse` schemas used by the primary
+FastAPI service.
+
+A real request to the Litestar endpoint returned a successful prediction with
+the model version, correlation ID, latency, and matching `X-Request-ID`
+response header.
+
+### FastAPI vs Litestar
+
+Both frameworks support ASGI deployment with Uvicorn, Pydantic models, and
+automatic OpenAPI documentation.
+
+For this project, FastAPI felt more direct because request validation,
+exception handlers, middleware, response models, and the existing structured
+logging setup fit naturally into the service implementation.
+
+Litestar uses a slightly different handler style, including the `data`
+parameter for request-body data and explicit route-handler registration on
+the application. It also introduced different default logging behaviour,
+which would require additional configuration to preserve the project's JSON
+logging format.
+
+FastAPI remains the primary serving framework for this project, while the
+Litestar implementation is retained on a side branch as a framework
+comparison.
+
+---
+
+## Containerization
+
+The prediction service was containerized using Docker with a multi-stage build
+based on `python:3.11-slim`.
+
+The runtime container:
+
+- installs the application and dependencies in a separate builder stage,
+- copies the installed Python environment into a clean runtime stage,
+- includes the trained model artifact,
+- exposes port `8000`,
+- defines a Docker health check against `/health`,
+- and runs the service as a non-root user.
+
+The container process runs as:
+
+```text
+user: appuser
+uid: 1000
+```
+
+This was verified with:
+
+```text
+docker exec <container> whoami
+docker exec <container> id
+```
+
+The commands returned:
+
+```text
+appuser
+uid=1000(appuser) gid=1000(appuser) groups=1000(appuser)
+```
+
+### Docker Build Context
+
+The Docker build context was measured before and after adding `.dockerignore`.
+
+| Configuration | Build context | Final image size |
+|---|---:|---:|
+| Without `.dockerignore` | 353.20 kB | 1,047,241,679 bytes |
+| With `.dockerignore` | 2.09 kB | 1,047,241,679 bytes |
+
+The `.dockerignore` reduced the build context by approximately 99.4%.
+
+The final image size did not change in this comparison because the Dockerfile
+already copies only specific paths (`pyproject.toml`, `src/`, and `models/`)
+rather than copying the whole repository.
+
+The `.dockerignore` therefore mainly improves build-context efficiency and
+reduces the chance of unnecessary local files being sent to the Docker builder.
+
+### Single-stage vs Multi-stage
+
+The final application was built using both single-stage and multi-stage Docker
+builds.
+
+| Build strategy | Final image size |
+|---|---:|
+| Single-stage | 1,060,475,527 bytes |
+| Multi-stage | 1,041,032,523 bytes |
+
+The multi-stage build reduced the final image size by 19,443,004 bytes,
+approximately 19.44 MB or 1.83%.
+
+The reduction is relatively small because the builder stage does not install
+large compiler toolchains and most of the image size comes from runtime ML
+dependencies such as NumPy, scikit-learn, and ONNX Runtime.
+
+The multi-stage approach still provides a cleaner runtime image by separating
+build-time files from the final serving environment.
+
+### Dependency Reproducibility
+
+During the first container test, loading the Pickle artifact produced an
+`InconsistentVersionWarning`.
+
+The model had been serialized using scikit-learn 1.7.2 while the initial Docker
+build installed scikit-learn 1.9.1.
+
+Because Pickle-based scikit-learn artifacts are sensitive to library-version
+compatibility, the project dependency was pinned to:
+
+```text
+scikit-learn==1.7.2
+```
+
+After rebuilding the image, the container reported:
+
+```text
+scikit-learn 1.7.2
+```
+
+and the serialization compatibility warning disappeared.
+
+### Docker Compose
+
+A `docker/docker-compose.yml` file was added to provide a reproducible local
+container deployment.
+
+The Compose configuration includes:
+
+- the API service,
+- the `PRODML_MODEL_PATH` environment variable,
+- a read-only `models/` volume mount,
+- port mapping from host port `8000` to container port `8000`,
+- and `restart: unless-stopped`.
+
+The service was started using:
+
+```text
+docker compose -f docker/docker-compose.yml up --build -d
+```
+
+The Compose deployment successfully reached Docker's:
+
+```text
+healthy
+```
+
+state, and the `/health` endpoint returned:
+
+```text
+HTTP/1.1 200 OK
+```
+
+### Standalone Runtime Verification
+
+The final image was also tested independently of Docker Compose.
+
+It was started using:
+
+```text
+docker run --rm \
+  --name prodml-api-test \
+  -p 8000:8000 \
+  nourhan17/prodml-api:0.1.0
+```
+
+This test is important because it verifies that the published image contains
+everything required to serve predictions without relying on a local source
+checkout or a model volume mount.
+
+The container successfully:
+
+- loaded the model at application startup,
+- returned HTTP 200 from `/health`,
+- passed the Docker health check,
+- served a real `/predict` request,
+- returned the model version and request correlation ID,
+- and ran as the non-root `appuser`.
+
+For the request:
+
+```json
+{
+  "PU_DO": "74_75",
+  "trip_distance": 3.5
+}
+```
+
+the container returned:
+
+```text
+prediction: 17.43947267130485
+model_version: 0.1.0
+```
+
+The response also included a correlation ID and prediction latency.
+
+### Non-root Execution
+
+The runtime container was configured to use a dedicated Linux user rather than
+running the API as `root`.
+
+The runtime user was verified using:
+
+```text
+docker exec prodml-api-check whoami
+```
+
+which returned:
+
+```text
+appuser
+```
+
+The user ID was also verified using:
+
+```text
+docker exec prodml-api-check id
+```
+
+which returned:
+
+```text
+uid=1000(appuser) gid=1000(appuser) groups=1000(appuser)
+```
+
+Running the serving process as a non-root user reduces unnecessary container
+privileges.
+
+### Published Image
+
+The final Docker image was tagged using both a semantic version and a rolling
+`latest` tag:
+
+```text
+nourhan17/prodml-api:0.1.0
+nourhan17/prodml-api:latest
+```
+
+Both tags were pushed successfully to Docker Hub.
+
+They currently point to the same published image digest:
+
+```text
+sha256:136cc22e0ef5d707fb739969102d7713e25b7b0c3a978ea7ff22aecc4b554c7e
+```
+
+The image can therefore be started on another machine using:
+
+```text
+docker run -p 8000:8000 nourhan17/prodml-api:0.1.0
+```
+
+without cloning the repository, installing Python dependencies, downloading the
+training dataset, or retraining the model.
+
+This satisfies the containerization acceptance requirement that another user
+can start the published image and obtain predictions using Docker alone.
+
+---
+
+## MLOps Maturity Self-Assessment
+
+Using the five-level maturity model from Lesson 1, this repository currently
+fits **Level 1 — Manual Process**.
+
+The project has moved beyond notebook-only experimentation into reusable Python
+modules, automated tests, model serialization, an API, structured logging, and
+a reproducible Docker image. However, model training, experiment execution,
+version promotion, and deployment are still triggered manually, and there is
+no experiment-tracking system or automated CI pipeline coordinating the ML
+workflow.
+
+To reach **Level 2 — ML Pipeline**, the project needs automated training,
+experiment tracking, and basic CI so that model-building and validation steps
+run reproducibly without relying on manual commands. These capabilities are the
+next focus of Module 2.

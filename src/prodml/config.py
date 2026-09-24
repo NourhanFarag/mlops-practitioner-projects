@@ -8,6 +8,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 class Settings(BaseSettings):
     data_path: Path = PROJECT_ROOT / "data" / "green_tripdata_2026-01.parquet"
     model_path: Path = PROJECT_ROOT / "models" / "model.pkl"
+    onnx_model_path: Path = PROJECT_ROOT / "models" / "model.onnx"
 
     validation_size: float = 0.2
     random_state: int = 42

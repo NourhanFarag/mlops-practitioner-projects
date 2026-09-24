@@ -1,0 +1,10 @@
+.git
+.venv
+notebooks/
+data/
+tests/
+__pycache__
+*.ipynb
+.coverage
+.pytest_cache/
+.ruff_cache/

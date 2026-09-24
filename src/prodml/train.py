@@ -1,4 +1,7 @@
+import logging
 import pickle
+from datetime import datetime, timezone
+from importlib.metadata import version
 
 import pandas as pd
 from sklearn.feature_extraction import DictVectorizer
@@ -8,12 +11,15 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error
 from prodml.config import settings
 from prodml.data import load_data, split_data
 from prodml.features import prepare_features
+from prodml.logging_conf import configure_logging
 
 # X
 CATEGORICAL = ["PU_DO"]
 NUMERICAL = ["trip_distance"]
 # Y
 TARGET = "duration"
+
+logger = logging.getLogger("prodml.train")
 
 
 def feature_to_dict(df: pd.DataFrame) -> list[dict[str, object]]:
@@ -35,9 +41,7 @@ def train_model(train_df: pd.DataFrame) -> tuple[DictVectorizer, LinearRegressio
 
 
 def evaluate_model(
-    val_df: pd.DataFrame,
-    vectorizer: DictVectorizer,
-    model: LinearRegression,
+    val_df: pd.DataFrame, vectorizer: DictVectorizer, model: LinearRegression
 ) -> tuple[float, float]:
 
     val_dicts = feature_to_dict(val_df)
@@ -58,6 +62,11 @@ def save_model(vectorizer: DictVectorizer, model: LinearRegression) -> None:
     artifact = {
         "vectorizer": vectorizer,
         "model": model,
+        "metadata": {
+            "model_version": version("prodml"),
+            "training_date": datetime.now(timezone.utc).isoformat(),
+            "framework": "scikit-learn",
+        },
     }
 
     with open(settings.model_path, "wb") as file:
@@ -65,12 +74,17 @@ def save_model(vectorizer: DictVectorizer, model: LinearRegression) -> None:
 
 
 def main() -> None:
+    configure_logging()
 
-    df = load_data()
+    raw_df = load_data()
 
-    df = prepare_features(df)
+    prepared_df = prepare_features(raw_df)
 
-    train_df, val_df = split_data(df)
+    train_df, val_df = split_data(prepared_df)
+
+    logger.debug(
+        "training split: train_rows=%d validation_rows=%d", len(train_df), len(val_df)
+    )
 
     vectorizer, model = train_model(train_df)
 
@@ -78,9 +92,11 @@ def main() -> None:
 
     save_model(vectorizer, model)
 
-    print(f"Validation MAE: {mae:.2f} minutes")
-    print(f"Validation RMSE: {rmse:.2f} minutes")
-    print(f"Model saved to: {settings.model_path}")
+    logger.info(
+        "training completed: validation_mae=%.2f validation_rmse=%.2f", mae, rmse
+    )
+
+    logger.info("model saved to: %s", settings.model_path)
 
 
 if __name__ == "__main__":
