@@ -13,6 +13,7 @@ dependencies = [
     "numpy",
     "skl2onnx",
     "onnxruntime",
+    "litestar[pydantic]",
 ]
 
 [project.optional-dependencies]
